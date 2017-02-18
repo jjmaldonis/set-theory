@@ -57,7 +57,6 @@ class SingleTSet(object):
         if hasattr(self, "hclosed"):
             self.hopen = not self.hclosed
 
-
     @property
     def lbound(self):
         if self.lclosed:
@@ -144,8 +143,6 @@ class TSet(object):
             singles = [SingleTSet(one_or_many)]
         else:
             # many
-            #if not isinstance(one_or_many[0], str):
-            #    one_or_many = one_or_many[0]
             singles = [SingleTSet(one) for one in one_or_many]
         # Merge sets
         if len(singles) > 1:
@@ -210,7 +207,6 @@ class TSet(object):
     def __ge__(self, other):
         return self > other or self == other
 
-
     @staticmethod
     def merge_two(s1, s2):
         # Assume both are SingleTSet's
@@ -232,8 +228,9 @@ class TSet(object):
 
 
 
-def main():
-    # Use hypothesis
+def test():
+    # Use hypothesis for testing instead if I can.
+    # All the below should be True
 
     s1 = SingleTSet("[2,5]")
     s2 = SingleTSet(5)
@@ -271,6 +268,7 @@ def main():
     print(0 not in s5 and 1 not in s5)
     s6 = TSet("[0, 1]")
     print(0 in s6 and 1 in s6)
+    print(s2 == s6)
 
     print(s1 < s3)
     print(s1 in s2 and s1 not in s3 and s1 in s4 and s1 not in s5 and s1 in s6)
@@ -282,5 +280,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    test()
 
