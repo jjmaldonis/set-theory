@@ -1,149 +1,130 @@
-import re
 import copy
 from itertools import combinations
+from typing import List, Tuple, Union
 
 
-class SingleTSet(object):
-    set_pattern = re.compile("(\[|\()\s*(\d*\.*\d*)\s*,\s*(\d*\.*\d*)\s*(\)|\])")
+class Singleton(float):
+    pass
+
+
+class Interval(object):
+    def __init__(self, interval: Union[List, Tuple], singleton: Singleton = None):
+        """
+        Examples:
+            Interval((0, 1))  # The open interval from 0 to 1
+            Interval([0, 1]  # The closed interval from 0 to 1
+            Interval((0, 1), Singleton(0))  # The half-open interval [0, 1)
+            Interval((0, 1), Singleton(1))  # The half-open interval (0, 1]
+        """
+        if singleton and singleton not in interval:
+            raise ValueError("`singleton` must be on a boundary")
+        if singleton and isinstance(interval, list):
+            raise TypeError("`interval` cannot be a list if a `singleton` is provided")
+        if isinstance(singleton, (int, float)):
+            singleton = Singleton(singleton)
+        self._interval = interval
+        self._singleton = singleton
+
+    @property
+    def lower(self):
+        return self._interval[0]
+
+    @property
+    def upper(self):
+        return self._interval[1]
+
+    @property
+    def lopen(self):
+        return isinstance(self._interval, tuple) and self.lower != self._singleton
+
+    @property
+    def ropen(self):
+        return isinstance(self._interval, tuple) and self.upper != self._singleton
+
+    @property
+    def lclosed(self):
+        return not self.lopen
+
+    @property
+    def rclosed(self):
+        return not self.ropen
 
     def __str__(self):
-        if self.low == self.high:
-            return "[{}]".format(self.low)
+        if not self._singleton:
+            return str(self._interval)
         else:
-            return "{}{}, {}{}".format(
-                self.lbound,
-                self.low,
-                self.high,
-                self.hbound
-            )
+            if self._singleton == self.lower:
+                return f"[{self.lower}, {self.upper})"
+            else:
+                return f"({self.lower}, {self.upper}]"
     __repr__ = __str__
 
-    def __init__(self, single):
-        if not isinstance(single, str):
-            # singleton
-            self.lclosed = True
-            self.hclosed = True
-            self.low = float(single)
-            self.high = self.low
-            self._fill_bounds()
-        else:
-            lower, lowbound, highbound, higher = self.set_pattern.findall(single)[0]
-            self.low = float(lowbound)
-            self.high = float(highbound)
-            self._set_bounds(lower, higher)
-
-    def _set_bounds(self, lower, higher):
-        if lower == "[":
-            self.lclosed = True
-        elif lower == "(":
-            self.lopen = True
-        else:
-            raise ValueError(lower)
-        if higher == "]":
-            self.hclosed = True
-        elif higher == ")":
-            self.hopen = True
-        else:
-            raise ValueError(higher)
-        self._fill_bounds()
-
-    def _fill_bounds(self):
-        if hasattr(self, "lopen"):
-            self.lclosed = not self.lopen
-        if hasattr(self, "lclosed"):
-            self.lopen = not self.lclosed
-        if hasattr(self, "hopen"):
-            self.hclosed = not self.hopen
-        if hasattr(self, "hclosed"):
-            self.hopen = not self.hclosed
-
-    @property
-    def lbound(self):
-        if self.lclosed:
-            return "["
-        elif self.lopen:
-            return "("
-        else:
-            raise ValueError(lower)
-
-    @property
-    def hbound(self):
-        if self.hclosed:
-            return "]"
-        elif self.hopen:
-            return ")"
-        else:
-            raise ValueError(higher)
-
-    def __contains__(self, num_or_set):
-        if isinstance(num_or_set, int) or isinstance(num_or_set, float):
+    def __contains__(self, num_or_set: Union['Interval', Singleton, float, int]):
+        if isinstance(num_or_set, (Singleton, int, float)):
             num = num_or_set
-            if num < self.low or num > self.high:
-                return False
-            if self.low < num < self.high:
-                return True
-            if self.low == num:
-                return self.lclosed
-            if self.high == num:
-                return self.hclosed
-            raise ValueError("Don't know how we got here", self, num)
+            if isinstance(self._interval, tuple):
+                return num == self._singleton or self.lower < num < self.upper
+            else:
+                return self.lower <= num <= self.upper
         else:
-            s = num_or_set
-            if (self.low  < s.low  or (self.low  == s.low  and (self.lclosed or (self.lopen and s.lopen)))) and \
-               (self.high > s.high or (self.high == s.high and (self.hclosed or (self.hopen and s.hopen)))):
+            other: Interval = num_or_set
+            if (self.lower < other.lower or (self.lower == other.lower and (self.lclosed or self.lopen == other.lopen))) and \
+               (self.upper > other.upper or (self.upper == other.upper and (self.rclosed or self.ropen == other.ropen))):
                 return True
             else:
                 return False
 
-    def __eq__(self, other):
-        return self.low == other.low and self.high == other.high and self.lopen == other.lopen and self.hopen == other.hopen
+    def __eq__(self, other: Union["Interval", Singleton]):
+        if isinstance(other, Singleton):
+            return False
+        return self._interval == other._interval and self._singleton == other._singleton
 
-    def __ne__(self, other):
+    def __ne__(self, other: Union["Interval", Singleton]):
         return not self == other
 
-    def __lt__(self, other):
-        # [0] < [1]
-        # [0] > [-1]
+    def __lt__(self, other: Union["Interval", Singleton, float, int]):
         # ..., 1) < [1, ...
         # ..., 1) < (1, ...
         # ..., 1] < (1, ...
         # ..., 1] !< [1, ...
-        if isinstance(other, int) or isinstance(other, float):
-            return self.high < other or (self.high == other and self.hopen)
-        if self.high < other.low:
+        if isinstance(other, (Singleton, float, int)):
+            return self.upper < other
+        low, high = self._interval
+        olow, ohigh = other._interval
+        if high < olow:
             return True
-        if self.high > other.low:
+        if high > olow:
             return False
-        if self.high == other.low:
+        if high == olow:
             # Check bounds
-            if self.hopen:
+            if isinstance(self._interval, tuple):
                 return True
-            if self.hclosed and other.lopen:
+            if isinstance(self._interval, list) and isinstance(other._interval, tuple):
                 return True
-            if self.hclosed and other.lclosed:
+            if isinstance(self._interval, list) and isinstance(other._interval, list):
                 return False
 
-    def __gt__(self, other):
+    def __gt__(self, other: "Interval"):
         return self != other and not self < other
 
-    def __le__(self, other):
+    def __le__(self, other: "Interval"):
         return self < other or self == other
 
-    def __ge__(self, other):
+    def __ge__(self, other: "Interval"):
         return self > other or self == other
 
 
+class Set(object):
+    def __init__(self, *intervals: Union[Interval, Singleton, tuple, list, float, int]):
+        singles = []
+        for interval in intervals:
+            if not isinstance(interval, (Interval, Singleton)):
+                if isinstance(interval, (float, int)):
+                    interval = Singleton(interval)
+                else:
+                    interval = Interval(interval)
+            singles.append(interval)
 
-class TSet(object):
-    def __init__(self, *one_or_many):
-        if len(one_or_many) == 1:
-            one_or_many = one_or_many[0]
-        if isinstance(one_or_many, str) or isinstance(one_or_many, int) or isinstance(one_or_many, float):
-            # one
-            singles = [SingleTSet(one_or_many)]
-        else:
-            # many
-            singles = [SingleTSet(one) for one in one_or_many]
         # Merge sets
         if len(singles) > 1:
             all_merged = []
@@ -163,39 +144,40 @@ class TSet(object):
                     unique.append(s)
         else:
             unique = singles
-        # Sort, using SingleTSet order
-        unique.sort(key=lambda s: s.low)
+        # Sort, using Interval order
+        unique.sort(key=lambda s: s.lower if isinstance(s, Interval) else s)
         unique.sort()
         self.singles = unique
 
     def __str__(self):
         return "{{{}}}".format(", ".join(str(single) for single in self.singles))
+    __repr__ = __str__
 
-    def __contains__(self, other):
-        if isinstance(other, SingleTSet) or isinstance(other, int) or isinstance(other, float):
-            return any(other in single for single in self.singles)
-        else:  # Assume `TSet`
+    def __contains__(self, other: Union["Set", Interval, Singleton, int, float]):
+        if isinstance(other, (Interval, Singleton, int, float)):
+            return any(other in single if isinstance(single, Interval) else other == single for single in self.singles)
+        else:  # Assume `Set`
             return all(
-                any(other_single in single for single in self.singles)
-                    for other_single in other.singles
+                any(other_single in single if isinstance(single, Interval) else other_single == single for single in self.singles)
+                for other_single in other.singles
             )
 
     def __eq__(self, other):
-        if isinstance(other, SingleTSet):
+        if isinstance(other, Interval):
             return len(self.singles) == 1 and self.singles[0] == other
-        else:  # Assume `TSet`
+        else:  # Assume `Set`
             return len(self.singles) == len(other.singles) and all(s == o for s, o in zip(self.singles, other.singles))
 
     def __ne__(self, other):
         return not self == other
 
     def __lt__(self, other):
-        if isinstance(other, int) or isinstance(other, float) or isinstance(other, SingleTSet):
+        if isinstance(other, int) or isinstance(other, float) or isinstance(other, Interval):
             return all(s < other for s in self.singles)
-        else:  # Assume `TSet`
+        else:  # Assume `Set`
             return all(
                 all(single < other_single for other_single in other.singles)
-                    for single in self.singles
+                for single in self.singles
             )
 
     def __gt__(self, other):
@@ -208,9 +190,63 @@ class TSet(object):
         return self > other or self == other
 
     @staticmethod
-    def merge_two(s1, s2):
-        # Assume both are SingleTSet's
-        s1, s2 = sorted([s1, s2], key=lambda s: s.low)
+    def merge_two(s1: Union[Interval, Singleton], s2: Union[Interval, Singleton]):
+        if isinstance(s1, Singleton):
+            if isinstance(s2, Singleton):
+                if s1 == s2:
+                    return s1
+                else:
+                    return s1, s2
+
+            # s2 is an Interval
+            # 1 & (0, 2)  -  in interval
+            # 0 & (1, 2)  -  too low
+            # 3 & (1, 2)  -  too high
+            # 0 & [0, 1]
+            # 0 & (0, 1]
+            # 1 & [0, 1]
+            # 1 & (0, 1)
+            if s1 in s2:
+                return s2
+            elif s1 < s2.lower or s1 > s2.upper:
+                return s1, s2
+            elif s1 == s2.lower:
+                if s2.lclosed:
+                    return s2
+                elif s2.rclosed:  # and s2.lopen
+                    return Interval([s2.lower, s2.upper])
+                else:  # s2.ropen and s2.lopen
+                    return Interval((s2.lower, s2.upper), s1)  # [s1, s2.upper)
+            elif s1 == s2.upper:
+                if s2.rclosed:
+                    return s2
+                elif s2.lclosed:  # and s2.ropen
+                    return Interval([s2.lower, s1])
+                else:  # s2.ropen and s2.lopen
+                    return Interval((s2.lower, s2.upper), s1)  # (s2.lower, s1]
+
+        if isinstance(s2, Singleton):
+            if s2 in s1:
+                return s1
+            elif s2 < s1.lower or s2 > s1.upper:
+                return s2, s1
+            elif s2 == s1.lower:
+                if s1.lclosed:
+                    return s1
+                elif s1.rclosed:  # and s1.lopen
+                    return Interval([s1.lower, s1.upper])
+                else:  # s1.ropen and s1.lopen
+                    return Interval((s1.lower, s1.upper), s2)  # [s2, s1.upper)
+            elif s2 == s1.upper:
+                if s1.rclosed:
+                    return s1
+                elif s1.lclosed:  # and s1.ropen
+                    return Interval([s1.lower, s2])
+                else:  # s1.ropen and s1.lopen
+                    return Interval((s1.lower, s1.upper), s2)  # (s1.lower, s2]
+
+        # Swap order if necessary so that s1 < s2 if applicable
+        #s1, s2 = sorted([s1, s2], key=lambda s: s._interval)
         s1, s2 = sorted([s1, s2])
 
         if s1 in s2:  # (0, 5) and (1, 2)
@@ -220,65 +256,18 @@ class TSet(object):
         # (0, 2) and (1, 3)
         # OR
         # (0, 1] and [1, 2)
-        if s1.high > s2.low or \
-           s1.high == s2.low and s1.hclosed and s2.lclosed:
-            s3 = SingleTSet("{}{}, {}{}".format(s1.lbound, s1.low, s2.high, s2.hbound))
+        low1, high1 = s1._interval
+        low2, high2 = s2._interval
+        if (high1 > low2) or (high1 == low2 and s1.rclosed and s2.lclosed):
+            if low1 in s1 and high2 in s2:
+                s3 = Interval([low1, high2])
+            elif low1 not in s1 and high2 not in s2:
+                s3 = Interval((low1, high2))
+            elif low1 in s1 and high2 not in s2:
+                s3 = Interval((low1, high2), Singleton(low1))
+            elif low1 not in s1 and high2 in s2:
+                s3 = Interval((low1, high2), Singleton(high2))
+            else:
+                raise RuntimeError("impossible!")
             return s3
         return s1, s2
-
-
-
-def test():
-    # Use hypothesis for testing instead if I can.
-    # All the below should be True
-
-    s1 = SingleTSet("[2,5]")
-    s2 = SingleTSet(5)
-    print(s2 in s1)
-
-    s = TSet("[0, 1)", "(1, 3]", "(1, 4)", "[2, 5]", 5, 6)
-    print(not (1 in s))
-    print(0 in s)
-    print(0.5 in s)
-    print(5 in s)
-    print(6 in s)
-    print(not (6+1e-12 in s))
-    print(not (6-1e-12 in s))
-
-    s1 = TSet("(0, 5)") == TSet("[3, 5)", "(0, 3]")
-    print(s1)
-
-    s1 = TSet(0)
-    print(s1 == s1)
-    print(not (s1 != s1))
-    print(not (s1 < 0))
-    print(not (s1 < s1))
-    print(not (s1 > s1))
-    print(s1 <= s1)
-    print(s1 >= s1)
-    print(s1 < 1e-12)
-    print(0 in s1 and 1e-12 not in s1)
-    s2 = TSet("[0,1]")
-    print(0 in s2 and 1 in s2)
-    s3 = TSet("(0,1]")
-    print(0 not in s3 and 1 in s3)
-    s4 = TSet("[0,1)")
-    print(0 in s4 and 1 not in s4)
-    s5 = TSet("(0,1)")
-    print(0 not in s5 and 1 not in s5)
-    s6 = TSet("[0, 1]")
-    print(0 in s6 and 1 in s6)
-    print(s2 == s6)
-
-    print(s1 < s3)
-    print(s1 in s2 and s1 not in s3 and s1 in s4 and s1 not in s5 and s1 in s6)
-    print(s2 not in s1 and s2 in s2 and s2 not in s3 and s2 not in s4 and s2 not in s5 and s2 in s6)
-    print(s3 not in s1 and s3 in s2 and s3 in s3 and s3 not in s4 and s3 not in s5 and s3 in s6)
-    print(s4 not in s1 and s4 in s2 and s4 not in s3 and s4 in s4 and s4 not in s5 and s4 in s6)
-    print(s5 not in s1 and s5 in s2 and s5 in s3 and s5 in s4 and s5 in s5 and s5 in s6)
-
-
-
-if __name__ == "__main__":
-    test()
-
